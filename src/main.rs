@@ -1,10 +1,12 @@
-use serde::Deserialize;
-use std::process;
-use std::net::ToSocketAddrs;
 use hyper::{
     service::{make_service_fn, service_fn},
     Server,
 };
+use serde::Deserialize;
+use std::error::Error;
+use std::net::ToSocketAddrs;
+use std::process;
+use tokio::time;
 
 #[macro_use]
 extern crate lazy_static;
@@ -27,20 +29,19 @@ fn default_node() -> String {
 
 #[derive(Deserialize, Debug)]
 struct Config {
-    #[serde(default="default_interval")]
+    #[serde(default = "default_interval")]
     interval: u64,
 
-    #[serde(default="default_listen")]
+    #[serde(default = "default_listen")]
     listen: String,
 
-    #[serde(default="default_node")]
+    #[serde(default = "default_node")]
     node: String,
 }
 
-
 #[tokio::main]
-async fn main() {
-    let config = match envy::prefixed("GETH_EXPORTER_").from_env::<Config>(){
+async fn main() -> Result<(), Box<dyn Error>> {
+    let config = match envy::prefixed("GETH_EXPORTER_").from_env::<Config>() {
         Ok(val) => val,
         Err(err) => {
             println!("{}", err);
@@ -48,18 +49,29 @@ async fn main() {
         }
     };
     println!("{:#?}", config);
-    let interval = config.interval;
+
+    // keep the value for later use
+    let listen = config.listen.clone();
+
     tokio::spawn(async move {
+        let node = config.node;
+        let mut interval = time::interval(time::Duration::from_millis(config.interval));
         loop {
-            println!("metrics updated");
-            service::update_metrics(interval).await;
+            interval.tick().await;
+            match service::update_metrics(&node).await {
+                Ok(_) => println!("metrics updated"),
+                Err(err) => {
+                    println!("{:?}", err.to_string());
+                    process::abort();
+                }
+            }
         }
     });
 
-    let addr = match config.listen.to_socket_addrs() {
+    let addr = match listen.to_socket_addrs() {
         Ok(mut addrs) => addrs.next().unwrap(),
         Err(err) => {
-            println!("ERROR: GET_EXPORTER_LISTEN: \"{}\": {}", config.listen, err);
+            println!("ERROR: GET_EXPORTER_LISTEN: \"{}\": {}", listen, err);
             process::exit(1)
         }
     };
@@ -72,4 +84,5 @@ async fn main() {
     if let Err(err) = serve_future.await {
         eprintln!("server error: {}", err);
     }
+    Ok(())
 }

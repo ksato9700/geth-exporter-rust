@@ -1,18 +1,17 @@
 [package]
-name = "geth-exporter-rust"
-version = "0.1.0"
 authors = ["Ken Sato <ksato9700@gmail.com>"]
 edition = "2018"
+name = "geth-exporter-rust"
+version = "0.1.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# web3 = "0.13"
-web3 = { path = "../rust-web3" }
-prometheus = "0.10"
-lazy_static = "1.4"
-hyper = "^0.13"
-tokio = { version = "^0.2", features = ["macros"] }
 envy = "0.4"
-serde = "1.0"
 futures = "0.3"
+hyper = "^0.13"
+lazy_static = "1.4"
+prometheus = "0.10"
+serde = "1.0"
+tokio = {version = "^0.2", features = ["macros"]}
+web3 = {git = "https://github.com/tomusdrw/rust-web3"}
