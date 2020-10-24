@@ -7,9 +7,14 @@ use std::error::Error;
 use std::net::ToSocketAddrs;
 use std::process;
 use tokio::time;
+use env_logger;
+
+#[macro_use]
+extern crate log;
 
 #[macro_use]
 extern crate lazy_static;
+
 #[macro_use]
 extern crate prometheus;
 
@@ -41,6 +46,8 @@ struct Config {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
     let config = match envy::prefixed("GETH_EXPORTER_").from_env::<Config>() {
         Ok(val) => val,
         Err(err) => {

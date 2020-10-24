@@ -1,6 +1,9 @@
 use hyper::{header::CONTENT_TYPE, Body, Method, Request, Response, StatusCode};
-use prometheus::{Encoder, GaugeVec, IntGaugeVec, TextEncoder};
+use prometheus::{Encoder, IntGauge, GaugeVec, IntGaugeVec, TextEncoder};
 use std::collections::HashMap;
+use web3::types::{BlockNumber, BlockId, SyncState, TxpoolStatus};
+use std::convert::TryInto;
+
 
 lazy_static! {
     static ref GETH_VERSION: IntGaugeVec = register_int_gauge_vec!(
@@ -24,20 +27,34 @@ lazy_static! {
     )
     .unwrap();
 
-    static ref BITCOIND_BLOCKCHAIN_SYNC: IntGaugeVec = register_int_gauge_vec!(
+    static ref BITCOIND_BLOCKCHAIN_SYNC: GaugeVec = register_gauge_vec!(
         "bitcoind_blockchain_sync",
         "Blockchain sync info",
         &["type"]
     )
     .unwrap();
 
-    static ref MG: GaugeVec = register_gauge_vec!(
-        "test_macro_gauge_vec_3",
-         "help",
-         &["a", "b"]
-    ).unwrap();
+    static ref GETH_GAS_PRICE: IntGauge = register_int_gauge!(
+        "geth_gas_price",
+        "Current gas price in wei"
+    )
+    .unwrap();
 
-     static ref CLIENT_NETWORK_NAME: HashMap<i32, &'static str> = [
+    static ref GETH_MEMPOOL_SIZE: IntGaugeVec = register_int_gauge_vec!(
+        "geth_mempool_size",
+        "Mempool information",
+        &["type"]
+    )
+    .unwrap();
+
+    static ref GETH_PEERS: IntGaugeVec = register_int_gauge_vec!(
+        "geth_peers",
+        "Connected peers",
+        &["version"]
+    )
+    .unwrap();
+
+    static ref CLIENT_NETWORK_NAME: HashMap<i32, &'static str> = [
         (1, "mainnet"),
         (2, "morden"),
         (3, "ropsten"),
@@ -48,26 +65,6 @@ lazy_static! {
         (42, "kovan"),
         (2018, "dev"),
      ].iter().cloned().collect();
-
-
-    // static ref HTTP_COUNTER: Counter = register_counter!(opts!(
-    //     "example_http_requests_total",
-    //     "Total number of HTTP requests made.",
-    //     labels! {"handler" => "all",}
-    // ))
-    // .unwrap();
-    // static ref HTTP_BODY_GAUGE: Gauge = register_gauge!(opts!(
-    //     "example_http_response_size_bytes",
-    //     "The HTTP response sizes in bytes.",
-    //     labels! {"handler" => "all",}
-    // ))
-    // .unwrap();
-    // // static ref HTTP_REQ_HISTOGRAM: HistogramVec = register_histogram_vec!(
-    //     "example_http_request_duration_seconds",
-    //     "The HTTP request latencies in seconds.",
-    //     &["handler"]
-    // )
-    // .unwrap();
 }
 
 pub async fn update_metrics(node: &String) -> Result<(), web3::Error> {
@@ -76,37 +73,49 @@ pub async fn update_metrics(node: &String) -> Result<(), web3::Error> {
 
     let client_version = web3.web3().client_version().await?;
     GETH_VERSION.with_label_values(&[&client_version]).set(1);
-    // println!("client_version: {}", client_version);
 
-    let client_network = web3.net().version().await?;
-    let client_network: i32 = client_network.parse().unwrap();
-    GETH_NETWORK
-        .with_label_values(&[&CLIENT_NETWORK_NAME[&client_network]])
-        .set(1);
-    // println!("client_network: {}", client_network);
+    let client_network: i32 = web3.net().version().await?.parse().unwrap();
+    GETH_NETWORK.with_label_values(&[&CLIENT_NETWORK_NAME[&client_network]]).set(1);
 
-    let latest_block = web3.eth().block_number().await?;
-    // println!("latest_block: {}", latest_block);
+    let latest_block = web3.eth().block(BlockId::Number(BlockNumber::Latest)).await?.unwrap();
+    let latest_hash = format!("{:#x}", latest_block.hash.unwrap());
+    let latest_number = latest_block.number.unwrap().as_u64().try_into().unwrap();
+    if GETH_LATEST.with_label_values(&[&latest_hash]).get() != latest_number {
+        GETH_LATEST.reset();
+        GETH_LATEST
+            .with_label_values(&[&latest_hash])
+            .set(latest_number);
 
-    let sync_info = web3.eth().syncing().await?;
-    // println!("sync_info: {:?}", sync_info);
+        info!("update latest to {} - {}", latest_number, latest_hash);
+
+        let (current, highest, progress) = match web3.eth().syncing().await? {
+            SyncState::Syncing(sync_info) => {
+                let current: u64 = sync_info.current_block.as_u64().try_into().unwrap();
+                let current: f64 = current as f64;
+                let highest: u64 = sync_info.highest_block.as_u64().try_into().unwrap();
+                let highest: f64 = highest as f64;
+                let progress = current / highest;
+                (current, highest, progress)
+            }
+            SyncState::NotSyncing => (latest_number as f64, latest_number as f64, 1.0),
+        };
+        BITCOIND_BLOCKCHAIN_SYNC.with_label_values(&["current"]).set(current);
+        BITCOIND_BLOCKCHAIN_SYNC.with_label_values(&["highest"]).set(highest);
+        BITCOIND_BLOCKCHAIN_SYNC.with_label_values(&["progress"]).set(progress);
+    }
+
 
     let gas_price = web3.eth().gas_price().await?;
-    // println!("gas_price: {:?}", gas_price);
+    GETH_GAS_PRICE.set(gas_price.as_u64().try_into().unwrap());
 
-    let mempool = web3.txpool().status().await?;
-    // println!("mempool: {:?}", mempool);
+    let mempool: TxpoolStatus = web3.txpool().status().await?;
+    GETH_MEMPOOL_SIZE.with_label_values(&["size"]).set(mempool.queued.as_u64().try_into().unwrap());
+
+    let peers = web3.net().peer_count().await?;
+    GETH_PEERS.with_label_values(&["all"]).set(peers.as_u64().try_into().unwrap());
 
     Ok(())
 }
-// async fn f() {
-//     let mut interval = time::interval(time::Duration::from_millis(100));
-//     loop {
-//         interval.tick().await;
-//         update_metrics();
-//         println!("metrics updated");
-//     }
-// }
 
 pub async fn serve_req(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
     match (req.method(), req.uri().path()) {
@@ -122,8 +131,6 @@ pub async fn serve_req(req: Request<Body>) -> Result<Response<Body>, hyper::Erro
                 .header(CONTENT_TYPE, encoder.format_type())
                 .body(Body::from(buffer))
                 .unwrap();
-
-            // timer.observe_duration();
 
             Ok(response)
         }
