@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+  release:
+    types: [published]
+  workflow_dispatch:
 
 env:
   DOCKER_BASE_NAME: ghcr.io/ksato9700/geth-exporter-rust
@@ -30,14 +33,12 @@ jobs:
       - run: docker images
 
       - name: Login to Registries
-        if: github.event_name != 'pull_request'
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           echo "${GH_PAT}" | docker login ghcr.io -u peaceiris --password-stdin
 
       - name: Push to GitHub Container Repository (latest)
-        if: github.event_name != 'pull_request'
         run: docker push ${DOCKER_BASE_NAME}:latest
 
       - name: Push to GitHub Container Repository (release tag)
