@@ -25,7 +25,7 @@ jobs:
 
       - name: Build image
         run: |
-          docker build . -t "${PKG_TAG}" --build-arg BASE_IMAGE="${{ matrix.baseimage }}"
+          docker build . -t "${DOCKER_BASE_NAME}:latest"
 
       - run: docker images
 
@@ -42,4 +42,6 @@ jobs:
 
       - name: Push to GitHub Container Repository (release tag)
         if: github.event_name == 'release'
-        run: docker push "${DOCKER_BASE_NAME}:${github.event.release.tag_name}"
+        run: |
+          docker tag "${DOCKER_BASE_NAME}:latest" "${DOCKER_BASE_NAME}:${github.event.release.tag_name}"
+          docker push "${DOCKER_BASE_NAME}:${github.event.release.tag_name}"
