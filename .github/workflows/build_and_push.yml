@@ -23,15 +23,6 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Set env
-        run: |
-          if [ "${{ github.event_name }}" = 'release' ]; then
-              export TAG_NAME="${{ github.event.release.tag_name }}"
-          else
-              export TAG_NAME="latest"
-          fi
-          echo "PKG_TAG=${DOCKER_BASE_NAME}:${TAG_NAME}" >> ${GITHUB_ENV}
-
       - name: Build image
         run: |
           docker build . -t "${PKG_TAG}" --build-arg BASE_IMAGE="${{ matrix.baseimage }}"
@@ -45,6 +36,10 @@ jobs:
         run: |
           echo "${GH_PAT}" | docker login ghcr.io -u peaceiris --password-stdin
 
-      - name: Push to GitHub Packages
+      - name: Push to GitHub Container Repository (latest)
         if: github.event_name != 'pull_request'
-        run: docker push "${PKG_TAG}"
+        run: docker push ${DOCKER_BASE_NAME}:latest
+
+      - name: Push to GitHub Container Repository (release tag)
+        if: github.event_name == 'release'
+        run: docker push "${DOCKER_BASE_NAME}:${github.event.release.tag_name}"
