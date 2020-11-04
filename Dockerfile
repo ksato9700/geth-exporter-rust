@@ -21,7 +21,7 @@ FROM debian:buster-slim
 WORKDIR /root
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libssl1.1 \
+    && apt-get install -y --no-install-recommends libssl1.1 ca-certificates \
     && apt-get -y clean \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p target/debug
